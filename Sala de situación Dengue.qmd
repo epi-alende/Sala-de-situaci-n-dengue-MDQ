@@ -1,0 +1,385 @@
+---
+title: "Sala de situación de dengue - Municipio de General Pueyrredón"
+author: ""
+format: 
+  dashboard:
+    scrolling: false
+    logo: logohiga.gif
+    theme: minty
+    nav-buttons: 
+      - icon: hospital
+        href: https://www.ms.gba.gov.ar/sitios/halende/
+        target: _blank
+      - icon: instagram
+        href: https://www.instagram.com/hospital_regional_mdp/?hl=es
+        target: _blank
+      - icon: info-circle
+        href: https://www.gba.gob.ar/dengue/
+        target: _blank
+---
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+library(tidyverse)
+library(readxl)
+library(readr)
+library(writexl)
+library(ggplot2)
+library(forcats)
+library(janitor)
+library(flextable)
+library(plotly)
+library(DT)
+library(lubridate)
+library(fs)
+library(highcharter)
+library(stringr)
+library(dplyr)
+library(scales)
+library(apexcharter)
+library(formattable)
+base <- read_xlsx("baseSS.xlsx")
+Sisa_anterior <- subset(base, FECHA_CONSULTA >= "2023-07-30" & FECHA_CONSULTA < "2024-07-28")
+Sisa_actual <- subset(base, FECHA_CONSULTA >= "2024-07-28" & FECHA_CONSULTA < "2025-07-27")
+```
+
+# Situación {orientation="rows"}
+
+## Row {height="35%"}
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+denguetotal <- Sisa_actual %>% filter(Clasificacion == "Confirmado") %>% count()
+
+dengueincacum <- Sisa_actual %>% filter(Clasificacion == "Confirmado") %>% count() %>% mutate("Incidencia acumulada" = round(n/667082*100000, digits = 1)) %>% select("Incidencia acumulada")
+
+denguese <- Sisa_actual %>% filter(Clasificacion == "Confirmado" & Anioepi == 2024 & Sepi == 30) %>% count()
+
+dengueriesgo <- Sisa_actual %>% filter(Clasificacion == "Confirmado", EDAD_DIAGNOSTICO < 2 | EDAD_DIAGNOSTICO > 65 | EMBARAZADA == "SI" | Comorbilidades == "SI") %>% count()
+
+dengueinter <- Sisa_actual %>% filter(Clasificacion == "Confirmado", INTERNADO == "SI") %>% count()
+
+denguemuer <- Sisa_actual %>% filter(Clasificacion == "Confirmado", FALLECIDO == "SI") %>% count()
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Casos confirmados" 
+ 
+list(
+  icon = "person",
+  color = "danger",
+  value = scales::number(denguetotal$n)
+)
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Incidencia acumulada" 
+ 
+list(
+  icon = "people",
+  color = "success",
+  value = scales::number(dengueincacum$`Incidencia acumulada`, decimal.mark = ",", accuracy = 0.01)
+)
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Confirmados última SE" 
+ 
+list(
+  icon = "arrow-down-circle", #"arrow-up-circle"
+  color = "info",
+  value = scales::number(denguese$n)
+)
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Casos en grupos de riesgo*" 
+ 
+list(
+  icon = "exclamation-circle",
+  color = "warning",
+  value = scales::number(dengueriesgo$n)
+)
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Requirieron internación" 
+ 
+list(
+  icon = "hospital",
+  color = "info",
+  value = scales::number(dengueinter$n)
+)
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Casos fallecidos" 
+ 
+list(
+  icon = "person-fill",
+  color = "danger",
+  value = scales::number(denguemuer$n)
+)
+```
+
+## Row {height="65%"}
+
+### Column {width="25%" fill="true" expandable="false"}
+
+:::::: {.card expandable="false"}
+::: {.callout-important padding="40px" style="font-size: 400%" appearance="simple" icon="false"}
+<br><br><br><br> ***El análisis de la información para la caracterización epidemiológica de dengue y otros arbovirus se realiza por “temporada”, entendiendo por tal un período de 52 semanas desde la SE31\*\* de un año a la SE30 del año siguiente, para considerar en conjunto los meses epidémicos.*** <br><br><br><br>
+:::
+
+::: {.callout-important appearance="minimal" icon="false"}
+~*\* Grupos de riesgo: Personas menores a 2 o mayores a 65 años,*~ <br> ~*embarazadas y/o con comorbilidades.*~ <br>
+:::
+
+::: {.callout-important appearance="minimal" icon="false"}
+~*\*\*SE: Semana epidemiológica.*~
+:::
+::::::
+
+### Column {width="45%" expandable="false"}
+
+#### Row {.tabset expandable="false"}
+
+##### Gráfico {height="100%" expandable="false"}
+
+```{r}
+#| echo: false
+#| expandable: false
+Sisa_evol <- Sisa_actual %>%
+  mutate(Sepi = as.character(Sepi),
+         Anioepi = as.character(Anioepi),
+         Sepi = if_else(str_length(Sepi) == 1, paste0("0",Sepi), Sepi), Anioepi = paste(Anioepi,"/",Sepi)) %>% 
+  group_by(Anioepi, Clasificacion) %>% 
+  summarise(Total = n()) %>% ungroup()
+
+grafico_evol <- highchart() %>% 
+  hc_xAxis(type = "linear", categories = unique(Sisa_evol$Anioepi), labels = list(step = 3, rotation = -45), title = list(text = "Semana epidemiológica")) %>% 
+  hc_yAxis(tickInterval = 5, title = list(text = "Frecuencia")) %>% 
+  hc_add_series(dplyr::filter(Sisa_evol, Clasificacion == "Confirmado"),  "line", hcaes(x = Anioepi, y = Total), name = "Confirmado", color = "red", lineWidth = 1) %>% 
+  hc_add_series(dplyr::filter(Sisa_evol, Clasificacion == "Probable"),  "line", hcaes(x = Anioepi, y = Total), name = "Probable", color = "blue", lineWidth = 1) %>%
+  hc_add_series(dplyr::filter(Sisa_evol, Clasificacion == "Sospechoso"),  "line", hcaes(x = Anioepi, y = Total), name = "Sospechoso", color = "yellow", lineWidth = 1) %>%
+  hc_add_series(dplyr::filter(Sisa_evol, Clasificacion == "Descartado"),  "line", hcaes(x = Anioepi, y = Total), name = "Descartado", color = "green", lineWidth = 1) %>%
+  hc_plotOptions(line = list(dataLabels = list(enabled = F),
+                             enableMouseTracking = T)) %>% 
+  hc_tooltip(table = T) %>% 
+  hc_title(text = "Evolución de casos de temporada por semana epidemiológica según clasificación") %>%
+  hc_subtitle(text = "Municipio de General Pueyrredón, SE31/2023 a SE30/2024")  %>%
+  hc_caption(
+    text = "<b>Fuente:</b> SNVS2.0 - Ministerio de Salud de la Nación")
+grafico_evol
+```
+
+##### Tabla {height="100%" expandable="false"}
+
+```{r}
+#| echo: false
+#| expandable: false
+tablasem <- Sisa_actual %>%
+  count(Anioepi, Sepi, Clasificacion, sort = T) %>%
+  mutate(Proporción = round(n/sum(n)*100, digits = 1)) %>% 
+  rename("Año epidemiológico" = Anioepi, "Semana epidemiológica" = Sepi, "N° de eventos" = n) %>%
+  adorn_totals(where = c("row"), name = "Total", 
+               cols = c("N° de eventos", "Proporción"))
+tablasem %>% datatable(options = list(pageLength = 20, scrollX = TRUE, searchHighlight = TRUE, language = list(url = 'https://cdn.datatables.net/plug-ins/2.1.4/i18n/es-MX.json')))
+```
+
+### Column {width="30%" expandable="false" fill="false"}
+
+```{r}
+#| echo: false
+#| expandable: false
+Grupos_estab <- Sisa_actual %>% group_by(ESTABLECIMIENTO_CARGA) %>% count(ESTABLECIMIENTO_CARGA) %>% mutate(ESTABLECIMIENTO_CARGA = as_factor(ESTABLECIMIENTO_CARGA)) %>% mutate(ESTABLECIMIENTO_CARGA = fct_recode(ESTABLECIMIENTO_CARGA, HIEMI = "HOSPITAL INTERZONAL ESPECIALIZADO MATERNO INFANTIL DR. VICTORIO TETAMANTI", HIGA = "HOSPITAL INTERZONAL GENERAL DE AGUDOS DR. OSCAR ALENDE"))
+grafestab <- apex(data = Grupos_estab, type = "donut", mapping = aes(x = ESTABLECIMIENTO_CARGA, y = n)) %>% ax_labs(
+    title = "Eventos notificados de dengue por establecimiento de carga", subtitle = "MGP, SE31/2023 a SE30/2024") %>% ax_legend(show = FALSE)
+grafestab
+```
+
+# Caracterización
+
+## Row {height="55%"}
+
+### Column {width="70%"}
+
+::: {.card title="Distribución por edad y sexo" width="30%" expandable="false"}
+```{r}
+#| echo: false
+Sisa_actual <- Sisa_actual %>%
+  mutate(grupo_edad = as.factor(fct_relevel(grupo_edad,"0-4", "5-9", "10-14", "15-19", "20-24", "25-29", "30-34", "35-39", "40-44", "45-49", "50-54", "55-59", "60-64", "65-69", "70-74", "75-79", "80+")))
+tabla_sexo <- Sisa_actual %>% count(grupo_edad, SEXO)
+tabla_total <- Sisa_actual %>% count(grupo_edad) %>% mutate(SEXO = "Total") %>% select(grupo_edad, SEXO, n)
+tablaedad <- rbind(tabla_sexo, tabla_total)
+
+grafico_sexo <- tablaedad %>%
+  ggplot() +
+  aes(x = grupo_edad,
+      y = n,
+      fill = SEXO) +
+  geom_col(position = "dodge") +
+  labs(x = "Grupo de edad", y ="Frecuencia",
+       title = "Municipio de General Pueyrredón, SE31 2023 a SE30 2024",
+       fill = "Sexo",
+       caption = "Fuente: Base SISA - Ministerio de Salud de la Nación") +
+  scale_fill_manual(
+    values = c(Femenino = "#FB392C",
+               Masculino = "#160DF0")) +
+  coord_flip() +
+  scale_y_continuous(
+    breaks = c(seq(0, 1200, by = 100)),
+    labels = c(seq(0, 1200, by = 100))) +
+  theme_minimal()
+ggplotly(grafico_sexo)
+```
+:::
+
+### Column {width="30%"}
+
+```{r}
+gruposedad <- Sisa_actual %>% filter(Clasificacion == "Confirmado" & Grupo_riesgo == "SI") %>% count(Grupo_riesgo)
+vector_conteo <- gruposedad %>% pull(n)
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Grupos de edad de riesgo (<2a y >65a)" 
+ 
+list(
+  icon = "bar-chart",
+  color = "primary",
+  value = scales::number(0)
+)
+```
+
+```{r}
+gruposcomorb <- Sisa_actual %>% filter(Clasificacion == "Confirmado" & Comorbilidades == "SI") %>% count(Comorbilidades)
+vector_conteo <- gruposcomorb %>% pull(n)
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Personas con comorbilidades" 
+ 
+list(
+  icon = "clipboard2-plus",
+  color = "primary",
+  value = scales::number(0)
+)
+```
+
+```{r}
+gruposemb <- Sisa_actual %>% filter(Clasificacion == "Confirmado" & EMBARAZADA == "SI") %>% count(EMBARAZADA) %>% mutate(n = if_else(is.na(n), 0, TRUE))
+vector_conteo <- gruposemb %>% pull(n)
+```
+
+```{r}
+#| content: valuebox 
+#| title: "Personas gestantes" 
+ 
+list(
+  icon = "person-standing-dress",
+  color = "primary",
+  value = scales::number(0)
+)
+```
+
+## Row {height="45%"}
+
+### Column {width="30%"}
+
+::: {.card title="Antecedentes relevantes" width="30%" expandable="false"}
+
+**Sin información disponible**
+```{r}
+#tabla <- Sisa_actual %>% filter(Clasificacion == "Confirmado") |> count(`Forma clínica`, ANTECEDENTE_EPIDEMIOLOGICO) %>% pivot_wider(names_from = `Forma clínica`, values_from = n) %>% mutate(`CON SIGNOS DE ALARMA` = if_else(is.na(`CON SIGNOS DE ALARMA`), 0, `CON SIGNOS DE ALARMA`), `SIN SIGNOS DE ALARMA` = if_else(is.na(`SIN SIGNOS DE ALARMA`), 0, `SIN SIGNOS DE ALARMA`))
+#tabla <- tabla |> filter(ANTECEDENTE_EPIDEMIOLOGICO != "NA"  | ANTECEDENTE_EPIDEMIOLOGICO != "SIN DATO") %>%
+  #select(ANTECEDENTE_EPIDEMIOLOGICO,`CON SIGNOS DE ALARMA`, `SIN SIGNOS DE ALARMA`) |> 
+  #rename("Antecedente epidemiológico" = ANTECEDENTE_EPIDEMIOLOGICO) |> 
+  #formattable(list(
+    #`CON SIGNOS DE ALARMA` = color_tile("lightgrey", "lightblue"),
+    #`SIN SIGNOS DE ALARMA` = color_tile("lightgrey", "lightblue"))) 
+#tabla
+```
+:::
+
+### Column {width="30%"}
+
+::: {.card title="Viaje a otro país" width="30%" expandable="false"}
+
+**Sin información disponible**
+```{r}
+#tabla <- Sisa_actual %>% filter(Clasificacion == "Confirmado") |> count(`Forma clínica`, PAIS_VIAJE) %>% pivot_wider(names_from = `Forma clínica`, values_from = n) %>% mutate(`CON SIGNOS DE ALARMA` = if_else(is.na(`CON SIGNOS DE ALARMA`), 0, `CON SIGNOS DE ALARMA`))
+#tabla <- tabla |> filter(PAIS_VIAJE != "SIN DATO") %>%
+  #select(PAIS_VIAJE,`CON SIGNOS DE ALARMA`, `SIN SIGNOS DE ALARMA`) |> 
+  #rename("País" = PAIS_VIAJE) |> 
+  #formattable(list(
+    #`CON SIGNOS DE ALARMA` = color_tile("lightgrey", "lightblue"),
+    #`SIN SIGNOS DE ALARMA` = color_tile("lightgrey", "lightblue"))) 
+#tabla
+```
+:::
+
+### Column {width="30%"}
+
+::: {.card title="Viaje a otra provincia" width="30%" expandable="false"}
+
+**Sin información disponible**
+```{r}
+#tabla <- Sisa_actual %>% filter(Clasificacion == "Confirmado") |> count(`Forma clínica`, PROV_VIAJE) %>% pivot_wider(names_from = `Forma clínica`, values_from = n) %>% mutate(`CON SIGNOS DE ALARMA` = if_else(is.na(`CON SIGNOS DE ALARMA`), 0, `CON SIGNOS DE ALARMA`))
+#tabla <- tabla |> filter(PROV_VIAJE != "NA") %>%
+  #select(PROV_VIAJE,`CON SIGNOS DE ALARMA`, `SIN SIGNOS DE ALARMA`) |> 
+  #rename("Provincia" = PROV_VIAJE) |> 
+  #formattable(list(
+    #`CON SIGNOS DE ALARMA` = color_tile("lightgrey", "lightblue"),
+    #`SIN SIGNOS DE ALARMA` = color_tile("lightgrey", "lightblue")))
+#tabla
+```
+:::
+
+# Links {orientation="rows" style="color"}
+
+## Row {height="8%" expandable="false"}
+
+::: {.card expandable="false"}
+**Información para los equipos de salud**
+:::
+
+## Row {height="85%"}
+
+### Column {width="50%" fill="false"}
+
+![](Infografía.png "Infografía protocolo para casos sospechosos de dengue"){fig-align="center" width="15cm"}
+
+### Column {width="50%" expandable="false"}
+
+#### Row {height="70%" expandable="false"}
+
+<br><br> ![](QR.jpeg){fig-align="right" width="5cm"}
+
+<br> **Padlet Dengue** [🔗](https://padlet.com/qr-code/x6hwpqmmir7vkpgd){style="color: black"}
+
+#### Row {height="30%" expandable="false"}
+
+::: {.callout-note appearance="simple" icon="false"}
+<br><br> **Boletín Epidemiológico Nacional** \[🔗\]
+
+**Boletín provincial dengue** \[🔗\] <br><br>
+:::
+
+## Row {height="7%"}
+
+::: {.card expandable="false"}
+~*Este tablero fue elaborado utilizando el sistema Quarto®. Todos los datos que se presentan son con fines exclusivamente informativos.*~
+:::
